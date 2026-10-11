@@ -1,0 +1,255 @@
+// ==UserScript==
+// @name         Speedy Gonzalez
+// @namespace    speedy-standalone-tampermonkey
+// @version      1.0
+// @description  Speedy - pełny bot Margonem w jednym userscripcie Tampermonkey
+// @match        *://*.margonem.pl/*
+// @match        *://margonem.pl/*
+// @match        *://*.margonem.com/*
+// @match        *://margonem.com/*
+// @exclude      *://forum.margonem.pl/*
+// @exclude      *://pomoc.margonem.pl/*
+// @run-at       document-end
+// @grant        none
+// ==/UserScript==
+
+// ====== UNIVERSAL VENDOR SHOP OPENER ======
+// Obsługuje wszystkie NPC niezależnie od wariantów dialogu
+async function openVendorShop(npcId) {
+    const stripHTML = (html) => {
+        const tmp = document.createElement("DIV");
+        tmp.innerHTML = html;
+        return tmp.textContent || tmp.innerText || "";
+    };
+
+    const isShopOpen = () => {
+        try {
+            if (document.querySelector('.shop-wrapper, .shop-background')) return true;
+            if (Engine.shop && typeof Engine.shop.getItems === 'function') {
+                const items = Engine.shop.getItems();
+                if (items && Object.keys(items).length > 0) return true;
+            }
+        } catch (e) {}
+        return false;
+    };
+
+    const waitForAnswers = async (maxTries = 20) => {
+        for (let i = 0; i < maxTries; i++) {
+            if (isShopOpen()) return 'shop';
+            const answers = document.querySelectorAll('.dialogue-window-answer');
+            if (answers.length > 0) return Array.from(answers);
+            await delay(100);
+        }
+        return null;
+    };
+
+    window._g('talk&id=' + npcId);
+
+    for (let step = 0; step < 5; step++) {
+        if (isShopOpen()) return true;
+
+        const answersOrState = await waitForAnswers(20);
+        if (answersOrState === 'shop') return true;
+        if (!answersOrState || answersOrState.length === 0) return false;
+
+        let targetAnswer = null;
+        // Szukamy odpowiedzi zawierającej słowa kluczowe do sklepu
+        const shopRegex = /(sklep|handluj|pokaz co masz|pokaż co masz|kupować|sprzedaj)/i;
+
+        for (const answerNode of answersOrState) {
+            const text = stripHTML(answerNode.innerHTML).toLowerCase();
+            if (shopRegex.test(text)) {
+                targetAnswer = answerNode;
+                break;
+            }
+        }
+
+        if (!targetAnswer) {
+             // Jeśli nie ma odpowiedzi ze słowami kluczowymi, klikamy pierwszą
+             // chyba że to "Zamknij" - wtedy rezygnujemy
+             const firstText = stripHTML(answersOrState[0].innerHTML).toLowerCase();
+             if (firstText.includes('zamknij')) return false; 
+             answersOrState[0].click();
+        } else {
+             // Znaleźliśmy właściwą odpowiedź - klikamy ją
+             targetAnswer.click();
+        }
+        
+        await delay(300);
+    }
+
+    // Ostatnia kontrola
+    for (let i = 0; i < 20; i++) {
+        await delay(100);
+        if (isShopOpen()) return true;
+    }
+
+    return false;
+}
+
+// ====== UNIVERSAL VENDOR ITEM PURCHASE ======
+// Kupuje przedmioty z otwartego sklepu
+async function buyItemsFromVendor(itemsToBuy, vendorName = "") {
+    try {
+        if (!itemsToBuy || itemsToBuy.length === 0) return 0;
+
+        let boughtCount = 0;
+        
+        for (const item of itemsToBuy) {
+            try {
+                // Szukamy przedmiotu w sklepie
+                const shopItem = document.querySelector(
+                    `.shop-item[data-item-id="${item.id}"], 
+                     .item[data-id="${item.id}"], 
+                     .shop-item:contains("${item.name}")`
+                );
+
+                if (shopItem) {
+                    shopItem.click();
+                    await delay(150);
+                    
+                    // Potwierdzamy zakup
+                    const confirmBtn = document.querySelector('.dialog-confirm, .btn-buy, .confirm-purchase');
+                    if (confirmBtn) {
+                        confirmBtn.click();
+                        await delay(200);
+                        boughtCount++;
+                    }
+                }
+            } catch (e) {
+                console.warn(`[Speedy] Błąd przy kupowaniu ${item.name}:`, e);
+            }
+        }
+
+        return boughtCount;
+    } catch (e) {
+        console.error(`[Speedy] Błąd w buyItemsFromVendor:`, e);
+        return 0;
+    }
+}
+
+// ====== UNIVERSAL VENDOR ITEM SELL ======
+// Sprzedaje wszystkie kwalifikujące się przedmioty
+async function sellItemsToVendor(filterConfig = {}) {
+    try {
+        let soldCount = 0;
+
+        // Szukamy przycisków sprzedaży w inventorzu
+        const sellButtons = document.querySelectorAll(
+            '.inventory-item .btn-sell, .item-action-sell, [data-action="sell"]'
+        );
+
+        for (const button of sellButtons) {
+            try {
+                // Sprawdzamy czy przedmiot pasuje do konfiguracji
+                const item = button.closest('.inventory-item, .item');
+                
+                if (filterConfig.quality && item.dataset.quality !== filterConfig.quality) {
+                    continue;
+                }
+
+                button.click();
+                await delay(100);
+                
+                const confirmBtn = document.querySelector('.dialog-confirm, .btn-sell, .confirm-sale');
+                if (confirmBtn) {
+                    confirmBtn.click();
+                    await delay(150);
+                    soldCount++;
+                }
+            } catch (e) {
+                console.warn(`[Speedy] Błąd przy sprzedaży przedmiotu:`, e);
+            }
+        }
+
+        return soldCount;
+    } catch (e) {
+        console.error(`[Speedy] Błąd w sellItemsToVendor:`, e);
+        return 0;
+    }
+}
+
+// ====== UNIVERSAL VENDOR INTERACTION ======
+// Główna funkcja obsługująca całą interakcję z NPC
+async function interactWithVendor(npc, config = {}) {
+    const vendor = npc.vendor || config.vendor || {};
+    const vendorName = vendor.name || npc.name || "Unknown Vendor";
+
+    try {
+        console.log(`[Speedy] Interakcja z: ${vendorName}`);
+
+        // 1. Otwieramy sklep
+        const shopOpened = await openVendorShop(npc.id);
+        if (!shopOpened) {
+            console.warn(`[Speedy] Nie udało się otworzyć sklepu u ${vendorName}`);
+            return false;
+        }
+
+        await delay(300);
+
+        // 2. Sprzedajemy jeśli trzeba
+        if (config.autoSell) {
+            const sold = await sellItemsToVendor(config.sellFilter || {});
+            if (sold > 0) {
+                console.log(`[Speedy] Sprzedano ${sold} itemów u ${vendorName}`);
+                if (window._uiCacheData.gui && typeof window._uiCacheData.gui.updateStatus === 'function') {
+                    window._uiCacheData.gui.updateStatus(
+                        `Sprzedano ${sold} itemów – uzupełniam zaopatrzenie...`,
+                        '#98c379'
+                    );
+                }
+                await delay(200);
+            }
+        }
+
+        // 3. Kupujemy jeśli trzeba
+        if (config.itemsToBuy && config.itemsToBuy.length > 0) {
+            const bought = await buyItemsFromVendor(config.itemsToBuy, vendorName);
+            if (bought > 0) {
+                console.log(`[Speedy] Kupiono ${bought} itemów u ${vendorName}`);
+                if (window._uiCacheData.gui && typeof window._uiCacheData.gui.updateStatus === 'function') {
+                    window._uiCacheData.gui.updateStatus(
+                        `Kupiono ${bought} itemów od ${vendorName}`,
+                        '#61afef'
+                    );
+                }
+            }
+        }
+
+        // 4. Zamykamy sklep
+        window._g('dialog&operation=close');
+        await delay(200);
+
+        return true;
+
+    } catch (e) {
+        console.error(`[Speedy] Błąd w interactWithVendor:`, e);
+        return false;
+    }
+}
+
+// ====== HELPER FUNCTION ======
+// Opóźnienie w ms
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ====== PRZYKŁAD UŻYCIA ======
+/*
+// Gdzieś w Twoim kodzie bota:
+
+const config = {
+    autoSell: true,
+    sellFilter: { quality: 'common' },
+    itemsToBuy: [
+        { id: 123, name: 'Mana Potion', quantity: 50 },
+        { id: 456, name: 'Health Potion', quantity: 100 }
+    ]
+};
+
+// Kiedy napotykasz NPC:
+const npc = { id: 789, name: 'Innkeeper' };
+await interactWithVendor(npc, config);
+*/
+
+console.log('[Speedy] Uniwersalne funkcje sprzedawcy załadowane v1.0');

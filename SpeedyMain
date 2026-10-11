@@ -161,15 +161,15 @@ if (__speedyMainOnly) {
           const style = document.createElement('style');
           style.id = 'speedy-low-mode';
           style.innerHTML = `
-              .filter-map-weather, 
-              .filter-map-fog, 
+              .filter-map-weather,
+              .filter-map-fog,
               .filter-map-night,
-              .canvas-warrior-effects, 
-              .character-effects, 
+              .canvas-warrior-effects,
+              .character-effects,
               .battle-effect-tint,
               .battle-night2-layer,
-              .map-overlay { 
-                  display: none !important; 
+              .map-overlay {
+                  display: none !important;
               }
           `;
           document.head.appendChild(style);
@@ -178,11 +178,11 @@ if (__speedyMainOnly) {
       // 2. Wyłączenie natywnych opcji pożerających zasoby (odpytywanie dopóki Engine nie wstanie)
       const disableNativeGraphics = () => {
           if (typeof Engine !== 'undefined' && Engine.settingsOptions) {
-              if (typeof Engine.settingsOptions.setInterfaceAnimationOn === 'function') 
+              if (typeof Engine.settingsOptions.setInterfaceAnimationOn === 'function')
                   Engine.settingsOptions.setInterfaceAnimationOn(false);
-              if (typeof Engine.settingsOptions.setMapAnimationOn === 'function') 
+              if (typeof Engine.settingsOptions.setMapAnimationOn === 'function')
                   Engine.settingsOptions.setMapAnimationOn(false);
-              if (typeof Engine.settingsOptions.setWeatherAndEventEffectsOn === 'function') 
+              if (typeof Engine.settingsOptions.setWeatherAndEventEffectsOn === 'function')
                   Engine.settingsOptions.setWeatherAndEventEffectsOn(false);
           }
       };
@@ -193,7 +193,7 @@ if (__speedyMainOnly) {
               setTimeout(hookIntoEngine, 500); // Czekaj na załadowanie silnika
               return;
           }
-          
+
           disableNativeGraphics();
 
           // Przechwycenie funkcji update (zastępuje to setInterval bota)
@@ -203,7 +203,7 @@ if (__speedyMainOnly) {
 
               Engine.hero.update = function(...args) {
                   originalHeroUpdate.apply(this, args);
-                  
+
                   // Throttling - ograniczamy wywołania bota do ok. 200ms
                   const now = Date.now();
                   if (now - lastTick >= 200) {
@@ -212,7 +212,7 @@ if (__speedyMainOnly) {
                       document.dispatchEvent(new CustomEvent('SpeedyEngineTick'));
                   }
               };
-              
+
               // Osobny event na wejście na nową mapę
               const originalMapLoad = Engine.map.onLoad;
               if (originalMapLoad) {
@@ -24469,9 +24469,9 @@ window._uiCacheData.exp2026 = {
             const raw = localStorage.getItem('_ext_anticaptcha_prefs');
             if (raw) return !!JSON.parse(raw).anticaptchaEnabled;
         } catch (_) {}
-        
+
         // Domyślnie włączone, jeśli brak innych danych
-        return true; 
+        return true;
     }
 
     // ── WYSYŁANIE PAKIETU I SYMULACJA KLIKNIĘCIA ─────────────────────────────
@@ -24513,7 +24513,7 @@ window._uiCacheData.exp2026 = {
     function findNativeMargonemCaptchaPopup() {
         const CAPTCHA_TEXTS = ['musisz poprawnie rozwiązać zagadkę', 'musisz rozwiązać zagadkę', 'rozwiąż zagadkę', 'solve the puzzle', 'captcha'];
         const candidates = document.querySelectorAll('.mAlert, .mWindow, .alert-window, .dialog, [class*="alert"], [class*="window"], [class*="dialog"], [class*="popup"], [class*="modal"]');
-        
+
         for (const el of candidates) {
             if (el.offsetParent === null) continue;
             const text = (el.textContent || '').toLowerCase();
@@ -24660,10 +24660,10 @@ window._uiCacheData.exp2026 = {
 
             const qEl = document.querySelector('.captcha__question');
             const btnBox = document.querySelector('.captcha__buttons');
-            
-            if (!qEl || !btnBox) { 
-                isHandling = false; 
-                return; 
+
+            if (!qEl || !btnBox) {
+                isHandling = false;
+                return;
             }
 
             const qText = qEl.textContent.trim();
@@ -24685,7 +24685,7 @@ window._uiCacheData.exp2026 = {
                 await sleep(randMs(200, 400));
                 click(confirmBtn);
                 sendPacket('captcha&answerId=' + answerIds.join(','));
-                
+
                 unknownCaptchaAttempts = 0;
                 if (gui) gui.updateStatus('✅ AC: Rozwiązano!', '#27ae60');
                 await sleep(2000);
@@ -32467,11 +32467,14 @@ const isTunia = Number(vendor.npc_id) === 16366 || Number(vendor.map_id) === 353
 
             if (parseInt(vendor.npc_id) === 16366) {
                 shopOpened = await openTuniaShopFast(npc.id);
-            } else {
+   } else {
                 window._g('talk&id=' + npc.id);
 
                 let answers = [];
                 for (let i = 0; i < 20; i++) {
+                    } catch(e) {}
+                }
+            }
                     answers = document.querySelectorAll('.dialogue-window-answer');
                     if (answers.length) break;
                     await delay(40);
@@ -32982,10 +32985,13 @@ async function handleAutoBuy(config, findPathBFS, walkSmoothly, getNextHopMap, g
             await delay(100);
 
 
-    async function openTuniaShopFast(npcId) {
-        const getAnswersSignature = () => Array.from(document.querySelectorAll('.dialogue-window-answer'))
-            .map(el => (el.textContent || '').trim())
-            .join('||');
+async function openVendorShop(npcId) {
+        // Pomocnicza funkcja czyszcząca HTML, aby wydobyć czysty tekst z odpowiedzi
+        const stripHTML = (html) => {
+            const tmp = document.createElement("DIV");
+            tmp.innerHTML = html;
+            return tmp.textContent || tmp.innerText || "";
+        };
 
         const isShopOpen = () => {
             try {
@@ -32998,88 +33004,75 @@ async function handleAutoBuy(config, findPathBFS, walkSmoothly, getNextHopMap, g
             return false;
         };
 
-        const ensureServerHook = () => {
-            try {
-                const comm = Engine && Engine.communication;
-                if (!comm || typeof comm.parseJSON !== 'function') return;
-                if (comm.parseJSON.__speedyTuniaHook) return;
-
-                const original = comm.parseJSON;
-                const wrapped = function(...args) {
-                    const result = original.apply(this, args);
-                    try { window.dispatchEvent(new CustomEvent('__speedy_server_packet__')); } catch (e) {}
-                    return result;
-                };
-                wrapped.__speedyTuniaHook = true;
-                wrapped.__speedyOriginal = original;
-                comm.parseJSON = wrapped;
-            } catch (e) {}
+        const waitForAnswers = async (maxTries = 20) => {
+            for (let i = 0; i < maxTries; i++) {
+                if (isShopOpen()) return 'shop';
+                const answers = document.querySelectorAll('.dialogue-window-answer');
+                if (answers.length > 0) return Array.from(answers);
+                await delay(100);
+            }
+            return null;
         };
 
-        const waitForEffect = (prevSignature, maxMs = 1200) => new Promise(resolve => {
-            if (isShopOpen()) return resolve('shop');
-
-            let done = false;
-            let observer = null;
-            let timer = null;
-
-            const finish = (value) => {
-                if (done) return;
-                done = true;
-                try { window.removeEventListener('__speedy_server_packet__', check); } catch (e) {}
-                try { observer && observer.disconnect(); } catch (e) {}
-                if (timer) clearTimeout(timer);
-                resolve(value);
-            };
-
-            const check = () => {
-                if (isShopOpen()) return finish('shop');
-                const answers = document.querySelectorAll('.dialogue-window-answer');
-                if (answers.length > 0) {
-                    const sig = getAnswersSignature();
-                    if (!prevSignature || sig !== prevSignature) return finish('answers');
-                }
-            };
-
-            try {
-                window.addEventListener('__speedy_server_packet__', check);
-                observer = new MutationObserver(check);
-                observer.observe(document.body, { subtree: true, childList: true, characterData: true });
-            } catch (e) {}
-
-            timer = setTimeout(() => {
-                if (isShopOpen()) finish('shop');
-                else if (document.querySelectorAll('.dialogue-window-answer').length > 0) finish('answers');
-                else finish('timeout');
-            }, maxMs);
-
-            check();
-        });
-
-        ensureServerHook();
+        // Rozpoczęcie dialogu z wybranym NPC
         window._g('talk&id=' + npcId);
 
-        let state = await waitForEffect('', 1500);
-        if (state === 'shop') return true;
-        if (state !== 'answers') return false;
-
-        // Maksymalnie: 1. "Może zrobisz..." -> Dalej -> Dalej.
-        for (let step = 0; step < 3; step++) {
+        // Limit iteracji na przejście dialogów, żeby nie zawiesić bota, jeśli NPC gada za długo
+        for (let step = 0; step < 5; step++) {
             if (isShopOpen()) return true;
 
-            const answers = document.querySelectorAll('.dialogue-window-answer');
-            if (!answers[0]) return false;
+            const answersOrState = await waitForAnswers(20);
 
-            const before = getAnswersSignature();
-            answers[0].click();
+            // Jeżeli jesteśmy już w sklepie, koniec
+            if (answersOrState === 'shop') return true;
 
-            state = await waitForEffect(before, 1200);
-            if (state === 'shop') return true;
-            if (state !== 'answers' && step < 2) return false;
+            // Brak odpowiedzi – zrywa dialog, nie można kontynuować
+            if (!answersOrState || answersOrState.length === 0) return false;
+
+            // Szukamy pożądanej opcji dialogowej przez Regex w oczyszczonym tekście
+            let targetAnswer = null;
+            const shopRegex = /(sklep|handluj|pokaz co masz|pokaż co masz)/i;
+
+            for (const answerNode of answersOrState) {
+                const text = stripHTML(answerNode.innerHTML).toLowerCase();
+                if (shopRegex.test(text)) {
+                    targetAnswer = answerNode;
+                    break;
+                }
+            }
+
+            // Jeżeli nie znaleźliśmy słów kluczowych "sklep", uderzamy w pierwszą opcję (zazwyczaj kontynuuje dialog),
+            // chyba że jest to opcja systemowa "Zamknij" – wtedy NPC nas wyrzucił.
+            if (!targetAnswer) {
+                 const firstText = stripHTML(answersOrState[0].innerHTML).toLowerCase();
+                 if (firstText.includes('zamknij')) return false; // Nie ma jak wejść
+                 answersOrState[0].click();
+            } else {
+                 // Słowo kluczowe "sklep" znalezione! Klikamy i czekamy na otwarcie interfejsu.
+                 targetAnswer.click();
+            }
+
+            // Zabezpieczające odczekanie na animację po kliknięciu przed nowym sprawdzeniem stanu
+            await delay(300);
         }
 
-        state = await waitForEffect(getAnswersSignature(), 1500);
-        return state === 'shop' || isShopOpen();
+        // Finalne odczekanie i sprawdzenie, czy sklep zaskoczył po przejściu dialogów
+        for (let i = 0; i < 20; i++) {
+            await delay(100);
+            if (isShopOpen()) return true;
+        }
+
+        return false;
+    }
+
+    let shopOpened = false;
+
+    // Próba otwarcia handlu u dowolnego wendora (w tym u Tunii)
+    shopOpened = await openVendorShop(npc.id);
+
+    if (!shopOpened) {
+        sellInProgress = false;
+        return false;
     }
 
             let shopOpened = false;
@@ -35403,7 +35396,6 @@ window._guiTabHTML_players = function(gui) {
 window._guiTabHTML_anticaptcha = function(gui) {
     return `
     <div id="tab-anticaptcha" class="tab-panel">
-
         <div class="settings-card">
             <div class="card-header">Rozwiązywanie zagadek</div>
             <div class="card-body">
@@ -35418,29 +35410,6 @@ window._guiTabHTML_anticaptcha = function(gui) {
                 </p>
             </div>
         </div>
-
-    </div>`;
-};
-        <div class="settings-card">
-            <div class="card-header">Losowy czas rozwiązywania (w milisekundach)</div>
-            <div class="card-body">
-                <div class="filters-row" style="justify-content: center;">
-                    <div class="filter-item">
-                        <label>Min:</label>
-                        <input type="number" id="set-anticaptchaMinTime" class="small-input" placeholder="6000" style="width: 70px !important;">
-                    </div>
-                    <span style="color:var(--text-muted)">-</span>
-                    <div class="filter-item">
-                        <label>Max:</label>
-                        <input type="number" id="set-anticaptchaMaxTime" class="small-input" placeholder="15000" style="width: 70px !important;">
-                    </div>
-                </div>
-                <p class="opt-hint" style="text-align: center; margin-top: 5px;">
-                    Bot odczeka losowy czas z tego przedziału, zanim rozwiąże zagadkę.
-                </p>
-            </div>
-        </div>
-
     </div>`;
 };
 
@@ -35657,35 +35626,34 @@ window._guiTabHTML_anticaptcha = function(gui) {
         }
 
 saveSettings() {
-    // Zawsze zapisuj ustawienia AC do osobnego klucza
-    try {
-        localStorage.setItem('_ext_anticaptcha_prefs', JSON.stringify({
-            anticaptchaEnabled: this.settings.anticaptchaEnabled
-        }));
-    } catch(_) {}
-    // ... reszta kodu
-}
+        // Zawsze zapisuj ustawienia AC do osobnego klucza – anticaptcha musi
+        // działać nawet gdy silnik nie jest załadowany i currentHeroId === null.
+        try {
+            localStorage.setItem('_ext_anticaptcha_prefs', JSON.stringify({
+                anticaptchaEnabled: this.settings.anticaptchaEnabled
+            }));
+        } catch(_) {}
 
-            // BLOKADA ZAPISU - Jeśli gra nie załadowała jeszcze ID postaci, zabroń zapisu,
-            // aby zapobiec nadpisywaniu się błędnych danych pod kluczem "_ext_ui_prefs_v2_null"
-            if (!this.currentHeroId) return;
+        // BLOKADA ZAPISU - Jeśli gra nie załadowała jeszcze ID postaci, zabroń zapisu,
+        // aby zapobiec nadpisywaniu się błędnych danych pod kluczem "_ext_ui_prefs_v2_null"
+        if (!this.currentHeroId) return;
 
-            // Inkrementuj licznik wersji – długie operacje (walkSmoothly, skanowanie)
-            // mogą sprawdzić czy ustawienia zmieniły się w trakcie ich wykonywania.
-            if (!window._uiCacheData._settingsVersion) window._uiCacheData._settingsVersion = 0;
-            window._uiCacheData._settingsVersion++;
+        // Inkrementuj licznik wersji – długie operacje (walkSmoothly, skanowanie)
+        // mogą sprawdzić czy ustawienia zmieniły się w trakcie ich wykonywania.
+        if (!window._uiCacheData._settingsVersion) window._uiCacheData._settingsVersion = 0;
+        window._uiCacheData._settingsVersion++;
 
-            // Wywołaj hooki zarejestrowane przez inne moduły (np. autoflee, autohero)
-            const hooks = window._uiCacheData._onSettingsChange;
-            if (hooks && hooks.length) {
-                for (const fn of hooks) { try { fn(this.settings); } catch(e) {} }
-            }
-
-            try {
-                const key = '_ext_ui_prefs_v2_' + this.currentHeroId;
-                localStorage.setItem(key, JSON.stringify(this.settings));
-            } catch(e) {}
+        // Wywołaj hooki zarejestrowane przez inne moduły (np. autoflee, autohero)
+        const hooks = window._uiCacheData._onSettingsChange;
+        if (hooks && hooks.length) {
+            for (const fn of hooks) { try { fn(this.settings); } catch(e) {} }
         }
+
+        try {
+            const key = '_ext_ui_prefs_v2_' + this.currentHeroId;
+            localStorage.setItem(key, JSON.stringify(this.settings));
+        } catch(e) {}
+    }
 
         applyLevelRange(setupName) {
             const setups = window._uiCacheData.setups || {};
@@ -35867,7 +35835,7 @@ saveSettings() {
                 window._guiTabHTML_players    ? window._guiTabHTML_players(this)    : '<div id="tab-players"  class="tab-panel"><p class="placeholder-text">Brak modułu</p></div>',
                 window._guiTabHTML_options    ? window._guiTabHTML_options(this)    : '<div id="tab-options"  class="tab-panel"><p class="placeholder-text">Brak modułu</p></div>',
                 window._guiTabHTML_danger     ? window._guiTabHTML_danger(this)     : '<div id="tab-danger"   class="tab-panel"><p class="placeholder-text">Brak modułu</p></div>',
-              window._guiTabHTML_anticaptcha  ? window._guiTabHTML_anticaptcha(this)  : '<div id="tab-anticaptcha"  class="tab-panel"><p class="placeholder-text">Brak modułu</p></div>',
+                window._guiTabHTML_anticaptcha  ? window._guiTabHTML_anticaptcha(this)  : '<div id="tab-anticaptcha"  class="tab-panel"><p class="placeholder-text">Brak modułu</p></div>',
             ].join('');
 
             this.container = document.createElement('div');
@@ -36276,11 +36244,8 @@ saveSettings() {
         // Zakładka Blokady Map
         if (typeof this.renderDangerTable === 'function') this.renderDangerTable();
 
-        // Zakładka Anty-Captcha
+     // Zakładka Anty-Captcha
         setToggleState('set-anticaptchaEnabled', this.settings.anticaptchaEnabled);
-        setToggleState('set-anticaptchaOpen',    this.settings.anticaptchaOpen);
-        setVal('set-anticaptchaMinTime',         this.settings.anticaptchaMinTime);
-        setVal('set-anticaptchaMaxTime',         this.settings.anticaptchaMaxTime);
     };
 
     // ── Populate helpers ─────────────────────────────────────────────────────
@@ -36646,28 +36611,17 @@ saveSettings() {
         setupCustomToggle('set-anticaptchaEnabled', 'anticaptchaEnabled');
         setupCustomToggle('set-anticaptchaOpen',    'anticaptchaOpen');
 
-        // Zapisuj ustawienia AC bezposrednio do localStorage przy kazdej zmianie.
-        // Bez zaleznosci od currentHeroId – anticaptcha czyta stad gdy silnik nie zaladowany.
+// Zapisuj ustawienia AC bezposrednio do localStorage przy kazdej zmianie.
         const AC_KEY = '_ext_anticaptcha_prefs';
         const acSyncToLocal = () => {
             try {
                 localStorage.setItem(AC_KEY, JSON.stringify({
-                    anticaptchaEnabled: this.settings.anticaptchaEnabled,
-                    anticaptchaOpen:    this.settings.anticaptchaOpen,
-                    anticaptchaMinTime: this.settings.anticaptchaMinTime,
-                    anticaptchaMaxTime: this.settings.anticaptchaMaxTime,
+                    anticaptchaEnabled: this.settings.anticaptchaEnabled
                 }));
             } catch(_) {}
         };
-        ['set-anticaptchaEnabled', 'set-anticaptchaOpen'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.addEventListener('click', acSyncToLocal);
-        });
-        ['set-anticaptchaMinTime', 'set-anticaptchaMaxTime'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.addEventListener('input', acSyncToLocal);
-        });
-
+        const acEl = document.getElementById('set-anticaptchaEnabled');
+        if (acEl) acEl.addEventListener('click', acSyncToLocal);
         // Teleporty
         this.teleportCities.forEach(city => {
             setupCustomToggle(`set-tpFrom${city.id}`, `tpFrom${city.id}`);
@@ -36719,8 +36673,6 @@ saveSettings() {
         setupInputField('set-warnIgnoreList',  'warnIgnoreList', true);
         setupInputField('set-warnRunFromClans','warnRunFromClans', true);
         setupInputField('set-warnIgnoreClans', 'warnIgnoreClans', true);
-        setupInputField('set-anticaptchaMinTime', 'anticaptchaMinTime');
-        setupInputField('set-anticaptchaMaxTime', 'anticaptchaMaxTime');
 
         const e2InviteEl = document.getElementById('set-e2InviteNicks');
         if (e2InviteEl) e2InviteEl.addEventListener('input', (e) => { this.settings.e2InviteNicks = e.target.value; this.saveSettings(); });

@@ -36244,7 +36244,7 @@ saveSettings() {
         // Zakładka Blokady Map
         if (typeof this.renderDangerTable === 'function') this.renderDangerTable();
 
-     // Zakładka Anty-Captcha
+// Zakładka Anty-Captcha
         setToggleState('set-anticaptchaEnabled', this.settings.anticaptchaEnabled);
     };
 
@@ -36611,7 +36611,7 @@ saveSettings() {
         setupCustomToggle('set-anticaptchaEnabled', 'anticaptchaEnabled');
         setupCustomToggle('set-anticaptchaOpen',    'anticaptchaOpen');
 
-// Zapisuj ustawienia AC bezposrednio do localStorage przy kazdej zmianie.
+// Zapisuj ustawienia AC bezpośrednio do localStorage przy każdej zmianie.
         const AC_KEY = '_ext_anticaptcha_prefs';
         const acSyncToLocal = () => {
             try {

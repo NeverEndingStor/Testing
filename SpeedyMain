@@ -153,6 +153,90 @@ if (__speedyMainOnly) {
   window._uiCacheData.__SPEEDY_TM_STANDALONE__ = true;
   window._uiCacheData.__SPEEDY_TM_VERSION__ = '1.0.3.20260906.32';
   console.log('[Speedy TM] bootstrap 1.0.3');
+
+// ====== SPEEDY OPTYMALIZATOR WYDAJNOŚCI ======
+  function initSpeedyOptimizer() {
+      // 1. Wstrzyknięcie Low Mode - odcięcie CSS dla obciążających warstw
+      if (!document.getElementById('speedy-low-mode')) {
+          const style = document.createElement('style');
+          style.id = 'speedy-low-mode';
+          style.innerHTML = `
+              .filter-map-weather, 
+              .filter-map-fog, 
+              .filter-map-night,
+              .canvas-warrior-effects, 
+              .character-effects, 
+              .battle-effect-tint,
+              .battle-night2-layer,
+              .map-overlay { 
+                  display: none !important; 
+              }
+          `;
+          document.head.appendChild(style);
+      }
+
+      // 2. Wyłączenie natywnych opcji pożerających zasoby (odpytywanie dopóki Engine nie wstanie)
+      const disableNativeGraphics = () => {
+          if (typeof Engine !== 'undefined' && Engine.settingsOptions) {
+              if (typeof Engine.settingsOptions.setInterfaceAnimationOn === 'function') 
+                  Engine.settingsOptions.setInterfaceAnimationOn(false);
+              if (typeof Engine.settingsOptions.setMapAnimationOn === 'function') 
+                  Engine.settingsOptions.setMapAnimationOn(false);
+              if (typeof Engine.settingsOptions.setWeatherAndEventEffectsOn === 'function') 
+                  Engine.settingsOptions.setWeatherAndEventEffectsOn(false);
+          }
+      };
+
+      // 3. Podpięcie się pod Game Engine (Eventy) zamiast setInterval
+      const hookIntoEngine = () => {
+          if (typeof Engine === 'undefined' || !Engine.hero) {
+              setTimeout(hookIntoEngine, 500); // Czekaj na załadowanie silnika
+              return;
+          }
+          
+          disableNativeGraphics();
+
+          // Przechwycenie funkcji update (zastępuje to setInterval bota)
+          if (!window._speedyHooked) {
+              const originalHeroUpdate = Engine.hero.update;
+              let lastTick = 0;
+
+              Engine.hero.update = function(...args) {
+                  originalHeroUpdate.apply(this, args);
+                  
+                  // Throttling - ograniczamy wywołania bota do ok. 200ms
+                  const now = Date.now();
+                  if (now - lastTick >= 200) {
+                      lastTick = now;
+                      // Generujemy event, pod który podpinasz logikę
+                      document.dispatchEvent(new CustomEvent('SpeedyEngineTick'));
+                  }
+              };
+              
+              // Osobny event na wejście na nową mapę
+              const originalMapLoad = Engine.map.onLoad;
+              if (originalMapLoad) {
+                  Engine.map.onLoad = function(...args) {
+                      originalMapLoad.apply(this, args);
+                      document.dispatchEvent(new CustomEvent('SpeedyMapLoad'));
+                  };
+              }
+              window._speedyHooked = true;
+              console.log('[Speedy TM] Zoptymalizowana pętla podpięta pod Engine.');
+          }
+      };
+
+      hookIntoEngine();
+  }
+
+  // Uruchamiamy natychmiast lub czekamy na DOM
+  if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initSpeedyOptimizer);
+  } else {
+      initSpeedyOptimizer();
+  }
+  // =============================================
+
 })();
 
 
@@ -24356,11 +24440,10 @@ window._uiCacheData.exp2026 = {
 
 // --- END OF FILE auto_options.js ---
 
-// ====== anticaptcha.js (bundled) ======
 // --- START OF FILE anticaptcha.js ---
 
 // ═══════════════════════════════════════════════════════════════
-//  anticaptcha.js – Moduł rozwiązujący zagadki (zintegrowany)
+//  anticaptcha.js – Zoptymalizowany Moduł rozwiązujący zagadki
 // ═══════════════════════════════════════════════════════════════
 (function () {
     'use strict';
@@ -24368,82 +24451,30 @@ window._uiCacheData.exp2026 = {
     if (!window._uiCacheData) window._uiCacheData = {};
     if (window._uiCacheData.anticaptcha) return;
 
-    const sleep  = ms => new Promise(r => setTimeout(r, ms));
-    const rand   = (a, b) => Math.random() * (b - a) + a;
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const rand = (a, b) => Math.random() * (b - a) + a;
     const randMs = (a, b) => Math.floor(rand(a, b));
 
     let unknownCaptchaAttempts = 0;
-    let captchaActionToken = null;
+    let isHandling = false;
 
-    function releaseCaptchaAction() {
-        const am = window._uiCacheData && window._uiCacheData.actionManager;
-        if (am && captchaActionToken) am.release(captchaActionToken);
-        captchaActionToken = null;
-    }
-
-    function acquireCaptchaAction() {
-        const am = window._uiCacheData && window._uiCacheData.actionManager;
-        if (!am) return true;
-        if (captchaActionToken) {
-            am.touch(captchaActionToken, 45000);
-            return true;
-        }
-        captchaActionToken = am.acquire('anticaptcha', 'CAPTCHA', 100, 45000);
-        return !!captchaActionToken;
-    }
-
-    // ── WŁASNY ODCZYT USTAWIEŃ AC ────────────────────────────────────────────
-    // Czyta z gui jeśli dostępne, fallback do localStorage, fallback do domyślnych.
-    // Zapis obsługuje gui_core.js (saveSettings) i gui_events.js (acSyncToLocal).
-    const AC_KEY = '_ext_anticaptcha_prefs';
-
-    function getACConfig() {
-        // Zawsze czytamy lokalny cache jako baze (ustawiony przez gui_events.js przy każdej zmianie).
-        // Nie polegamy na gui.getSettings() jako jedynym źródle – bo gdy silnik nie załaduje DOM GUI
-        // może mieć domyślne false, podczas gdy użytkownik wcześniej zapisał true w localStorage.
-        let localPrefs = null;
-        try {
-            const raw = localStorage.getItem(AC_KEY);
-            if (raw) localPrefs = JSON.parse(raw);
-        } catch (_) {}
-
+    // ── WŁASNY ODCZYT USTAWIEŃ AC (PROSTY ON/OFF) ────────────────────────────
+    function isCaptchaEnabled() {
+        // Sprawdzamy ustawienia GUI lub fallback z localStorage
         const gui = window._uiCacheData && window._uiCacheData.gui;
         if (gui) {
-            const guiSettings = gui.getSettings();
-            // Mergujemy: GUI jest autorytatywne dla pozostałych ustawień bota,
-            // ale dla flag AC preferujemy lokalny cache jeśli GUI jest w stanie "domyślnym"
-            // (tzn. silnik nie załadował i GUI nie zdążyło odczytać ustawień z serwera).
-            // Sygnałem "domyślnego" stanu GUI jest brak currentHeroId lub brak zapisu w localStorage.
-            if (localPrefs) {
-                return {
-                    ...guiSettings,
-                    anticaptchaEnabled: localPrefs.anticaptchaEnabled,
-                    anticaptchaOpen:    localPrefs.anticaptchaOpen,
-                    anticaptchaMinTime: localPrefs.anticaptchaMinTime ?? guiSettings.anticaptchaMinTime,
-                    anticaptchaMaxTime: localPrefs.anticaptchaMaxTime ?? guiSettings.anticaptchaMaxTime,
-                };
-            }
-            return guiSettings;
+            return !!gui.getSettings().anticaptchaEnabled;
         }
-
-        if (localPrefs) return localPrefs;
-
-        // Ostateczny fallback: włączone domyślnie (silnik padł, brak GUI, brak localStorage)
-        return {
-            anticaptchaEnabled: true,
-            anticaptchaOpen:    true,
-            anticaptchaMinTime: 6000,
-            anticaptchaMaxTime: 15000,
-        };
+        try {
+            const raw = localStorage.getItem('_ext_anticaptcha_prefs');
+            if (raw) return !!JSON.parse(raw).anticaptchaEnabled;
+        } catch (_) {}
+        
+        // Domyślnie włączone, jeśli brak innych danych
+        return true; 
     }
 
-    function getDelay(config) {
-        const min = Math.max(500, parseInt(config.anticaptchaMinTime) || 6000);
-        const max = Math.max(min, parseInt(config.anticaptchaMaxTime) || 15000);
-        return randMs(min, max);
-    }
-
-    // ── WYSYŁANIE PAKIETU ────────────────────────────────────────────────────
+    // ── WYSYŁANIE PAKIETU I SYMULACJA KLIKNIĘCIA ─────────────────────────────
     function sendPacket(packet) {
         if (typeof window._g === 'function') {
             window._g(packet);
@@ -24459,17 +24490,16 @@ window._uiCacheData.exp2026 = {
         }
     }
 
-    // Kliknięcie z pełną symulacją zdarzeń myszy
     function click(el) {
         if (!el) return;
         const r = el.getBoundingClientRect();
-        const x = r.left + r.width  / 2 + rand(-2, 2);
-        const y = r.top  + r.height / 2 + rand(-2, 2);
+        const x = r.left + r.width / 2 + rand(-2, 2);
+        const y = r.top + r.height / 2 + rand(-2, 2);
         const o = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
         ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(t =>
             el.dispatchEvent(new MouseEvent(t, o))
         );
-        if (typeof window.$ === 'function') window.$(el).trigger('click');
+        if (typeof window.$=== 'function') window.$(el).trigger('click');
     }
 
     function getAnswerId(btn, idx) {
@@ -24480,21 +24510,10 @@ window._uiCacheData.exp2026 = {
             ?? String(idx);
     }
 
-    // ── WYKRYWANIE NATYWNEGO OKIENKA MARGONEM ────────────────────────────────
-    // Gdy silnik pada, gra pokazuje okienko "Wiadomość" z tekstem o konieczności
-    // rozwiązania zagadki i przyciskiem (np. "Strona Główna [ć]").
-    // To okienko pojawia się PRZED właściwą captchą i trzeba je kliknąć.
     function findNativeMargonemCaptchaPopup() {
-        const CAPTCHA_TEXTS = [
-            'musisz poprawnie rozwiązać zagadkę',
-            'musisz rozwiązać zagadkę',
-            'rozwiąż zagadkę',
-            'solve the puzzle',
-            'captcha',
-        ];
-        const candidates = [
-            ...document.querySelectorAll('.mAlert, .mWindow, .alert-window, .dialog, [class*="alert"], [class*="window"], [class*="dialog"], [class*="popup"], [class*="modal"]'),
-        ];
+        const CAPTCHA_TEXTS = ['musisz poprawnie rozwiązać zagadkę', 'musisz rozwiązać zagadkę', 'rozwiąż zagadkę', 'solve the puzzle', 'captcha'];
+        const candidates = document.querySelectorAll('.mAlert, .mWindow, .alert-window, .dialog, [class*="alert"], [class*="window"], [class*="dialog"], [class*="popup"], [class*="modal"]');
+        
         for (const el of candidates) {
             if (el.offsetParent === null) continue;
             const text = (el.textContent || '').toLowerCase();
@@ -24592,184 +24611,111 @@ window._uiCacheData.exp2026 = {
     }
 
     // ── GŁÓWNA LOGIKA PĘTLI ──────────────────────────────────────────────────
-    // Działa ZAWSZE – niezależnie od stanu Engine i gui.
-    // Ustawienia: gui → localStorage → domyślne (włączone).
-    let busy = false;
+    async function checkCaptcha() {
+        if (isHandling) return;
+        if (!isCaptchaEnabled()) return;
 
-    async function tick() {
-        if (busy) return;
+        const gui = window._uiCacheData && window._uiCacheData.gui;
+        const reactionTime = randMs(400, 900); // 400 - 900 ms na otwarcie okna
+        const solveTime = randMs(700, 2800);   // Dodatkowe 700 - 2800 ms na rozwiązanie
 
-        const gui    = window._uiCacheData && window._uiCacheData.gui;
-        const config = getACConfig();
-
-        const enabled     = config.anticaptchaEnabled;
-        const openEnabled = config.anticaptchaOpen;
-
-        // Sprawdzamy czy captcha jest aktualnie widoczna w DOM.
-        // Jeśli tak – działamy ZAWSZE, niezależnie od flag enabled/openEnabled.
-        // Gdy silnik nie załadował, użytkownik nie może zmienić ustawień GUI –
-        // nie możemy go blokować przez domyślne false.
-        const captchaVisibleInDOM = !!(
-            document.querySelector('.captcha-pre-info')
-            || document.querySelector('.captcha')
-            || findNativeMargonemCaptchaPopup()
-        );
-
-        const engineMissing = (typeof Engine === 'undefined' || !Engine.hero);
-
-        if (!captchaVisibleInDOM) {
-            unknownCaptchaAttempts = 0;
-            releaseCaptchaAction();
-        } else {
-            acquireCaptchaAction();
-        }
-
-        // Gdy flagi wyłączone i captcha niewidoczna → nic nie rób
-        if (!enabled && !openEnabled && !captchaVisibleInDOM) {
+        // 1. FAZA: Natywne okienko (gdy wysypie się UI)
+        const nativePopup = findNativeMargonemCaptchaPopup();
+        if (nativePopup) {
+            isHandling = true;
+            if (gui) gui.updateStatus(`🧩 AC: Reakcja za ${(reactionTime/1000).toFixed(2)}s`, '#e67e22');
+            await sleep(reactionTime);
+            click(nativePopup.button);
+            await sleep(500);
+            isHandling = false;
             return;
         }
 
-        // Gdy flagi wyłączone, captcha jest widoczna, ale silnik działa normalnie
-        // → użytkownik świadomie wyłączył AC → szanujemy to
-        if (!enabled && !openEnabled && captchaVisibleInDOM && !engineMissing) {
-            if (gui) gui.updateStatus('Wyłączony', '#555');
+        // 2. FAZA: Pre-captcha (Znalazłeś skrzynkę / wyskoczyła captcha)
+        const preBtn = document.querySelector('.captcha-pre-info__button .button')
+            || document.querySelector('.captcha-pre-info__button button')
+            || document.querySelector('.captcha-pre-info__button');
+
+        if (preBtn && preBtn.offsetParent !== null) {
+            isHandling = true;
+            if (gui) gui.updateStatus(`🧩 AC: Otwieranie za ${(reactionTime/1000).toFixed(2)}s`, '#e67e22');
+            await sleep(reactionTime);
+            click(preBtn);
+            await sleep(300);
+            sendPacket('captcha&start=1');
+            await sleep(500);
+            isHandling = false;
             return;
         }
 
-        // Gdy silnik nie załadował i captcha jest widoczna → działamy bez względu na flagi
-        // (albo gdy flagi są włączone – normalna praca)
+        // 3. FAZA: Główne okno captchy
+        const captcha = document.querySelector('.captcha');
+        const confirmBtn = document.querySelector('.captcha__confirm .button') || document.querySelector('.captcha__confirm');
 
-        // ── FAZA 0: Natywne okienko Margonem ────────────────────────────────
-        if (openEnabled || enabled || (captchaVisibleInDOM && engineMissing)) {
-            const nativePopup = findNativeMargonemCaptchaPopup();
-            if (nativePopup) {
-                busy = true;
-                const w = getDelay(config);
-                if (gui) gui.updateStatus(`🧩 AC: Klikam okienko za ${(w/1000).toFixed(1)}s...`, '#e67e22');
-                await sleep(w);
-                if (gui) gui.updateStatus('🧩 AC: Otwieram captchę...', '#3498db');
-                click(nativePopup.button);
-                await sleep(randMs(800, 1400));
-                busy = false;
-                return;
+        if (captcha && captcha.offsetParent !== null && confirmBtn) {
+            isHandling = true;
+            const totalWait = reactionTime + solveTime;
+            if (gui) gui.updateStatus(`🧩 AC: Rozwiązywanie za ${(totalWait/1000).toFixed(2)}s`, '#e67e22');
+            await sleep(totalWait);
+
+            const qEl = document.querySelector('.captcha__question');
+            const btnBox = document.querySelector('.captcha__buttons');
+            
+            if (!qEl || !btnBox) { 
+                isHandling = false; 
+                return; 
             }
-        }
 
-        // ── FAZA 1: okienko pre-captcha (.captcha-pre-info) ──────────────────
-        if (openEnabled || engineMissing) {
-            const prePanel = document.querySelector('.captcha-pre-info');
-            const preBtn   = document.querySelector('.captcha-pre-info__button .button')
-                          || document.querySelector('.captcha-pre-info__button button')
-                          || document.querySelector('.captcha-pre-info__button');
+            const qText = qEl.textContent.trim();
+            let buttons = [...btnBox.querySelectorAll('.button')];
+            if (!buttons.length) buttons = [...btnBox.children];
 
-            if (prePanel && prePanel.offsetParent !== null && preBtn) {
-                busy = true;
-                const w = getDelay(config);
-                if (gui) gui.updateStatus(`🧩 AC: Otwieram za ${(w/1000).toFixed(1)}s...`, '#e67e22');
-                await sleep(w);
-                if (gui) gui.updateStatus('🧩 AC: Otwieram okno...', '#3498db');
-                click(preBtn);
-                await sleep(randMs(260, 420));
-                sendPacket('captcha&start=1');
-                await sleep(randMs(600, 1000));
-                busy = false;
-                return;
-            }
-        }
+            const optTexts = buttons.map(b => b.textContent.trim());
+            const hits = solve(qText, optTexts);
 
-        // ── FAZA 2: główna captcha ───────────────────────────────────────────
-        if (enabled || engineMissing) {
-            const captcha    = document.querySelector('.captcha');
-            const confirmBtn = document.querySelector('.captcha__confirm .button')
-                            || document.querySelector('.captcha__confirm');
-
-            if (captcha && captcha.offsetParent !== null && confirmBtn) {
-                busy = true;
-
-                const w = getDelay(config);
-                if (gui) gui.updateStatus(`🧩 AC: Analizuję za ${(w/1000).toFixed(1)}s...`, '#e67e22');
-                await sleep(w);
-
-                const qEl    = document.querySelector('.captcha__question');
-                const btnBox = document.querySelector('.captcha__buttons');
-                if (!qEl || !btnBox) { busy = false; return; }
-
-                const qText   = qEl.textContent.trim();
-                let   buttons = [...btnBox.querySelectorAll('.button')];
-                if (!buttons.length) buttons = [...btnBox.children];
-
-                const optTexts = buttons.map(b => b.textContent.trim());
-                const hits     = solve(qText, optTexts);
-
-                if (hits.length > 0) {
-                    if (gui) gui.updateStatus('🧩 AC: Zaznaczam...', '#3498db');
-                    const answerIds = [];
-                    for (const idx of hits) {
-                        const btn = buttons[idx];
-                        if (!btn) continue;
-                        answerIds.push(getAnswerId(btn, idx));
-                        click(btn);
-                        await sleep(randMs(120, 280));
-                    }
-                    await sleep(randMs(250, 450));
-                    if (gui) gui.updateStatus('🧩 AC: Potwierdzam...', '#9b59b6');
-                    click(confirmBtn);
-                    await sleep(randMs(180, 320));
-                    sendPacket('captcha&answerId=' + answerIds.join(','));
-                    unknownCaptchaAttempts = 0;
-                    if (window._uiCacheData.errors) window._uiCacheData.errors.reset('CAPTCHA_UNKNOWN');
-                    if (gui) gui.updateStatus('✅ AC: Sukces!', '#27ae60');
-                    await sleep(randMs(1500, 2500));
-                } else {
-                    unknownCaptchaAttempts++;
-                    if (window._uiCacheData.errors) {
-                        window._uiCacheData.errors.record('CAPTCHA_UNKNOWN', {
-                            attempts: unknownCaptchaAttempts,
-                            question: qText,
-                            options: optTexts
-                        });
-                    }
-
-                    if (unknownCaptchaAttempts >= 3) {
-                        if (gui) {
-                            gui.updateStatus('🛑 AC: 3x brak odpowiedzi – bot wstrzymany', '#e74c3c');
-                            if (typeof gui.forceStop === 'function') {
-                                gui.forceStop('Captcha nierozpoznana po 3 próbach');
-                            }
-                        }
-                        console.error('[Speedy AC] Captcha nierozpoznana 3 razy:', {
-                            question: qText,
-                            options: optTexts
-                        });
-                        await sleep(randMs(1300, 1900));
-                    } else {
-                        if (gui) gui.updateStatus(`⚠️ AC: Nie wiem (${unknownCaptchaAttempts}/3) – czekam`, '#e74c3c');
-                        await sleep(randMs(5000, 8000));
-                    }
+            if (hits.length > 0) {
+                const answerIds = [];
+                for (const idx of hits) {
+                    const btn = buttons[idx];
+                    if (!btn) continue;
+                    answerIds.push(getAnswerId(btn, idx));
+                    click(btn);
+                    await sleep(randMs(100, 200));
                 }
-
-                busy = false;
+                await sleep(randMs(200, 400));
+                click(confirmBtn);
+                sendPacket('captcha&answerId=' + answerIds.join(','));
+                
+                unknownCaptchaAttempts = 0;
+                if (gui) gui.updateStatus('✅ AC: Rozwiązano!', '#27ae60');
+                await sleep(2000);
+            } else {
+                unknownCaptchaAttempts++;
+                if (unknownCaptchaAttempts >= 3) {
+                    if (gui && typeof gui.forceStop === 'function') {
+                        gui.forceStop('Captcha nierozpoznana 3 razy. Zatrzymano.');
+                    }
+                    console.error('[Speedy AC] Captcha nierozpoznana:', qText, optTexts);
+                    await sleep(2000);
+                } else {
+                    if (gui) gui.updateStatus(`⚠️ AC: Błąd (${unknownCaptchaAttempts}/3)`, '#e74c3c');
+                    await sleep(3000); // Wait and retry
+                }
             }
+            isHandling = false;
         }
     }
 
-    // Lekki jitter jest tylko wewnątrz kroków/retry AC; sam tick zostaje stały dla stabilnej reakcji.
-    if (window._uiCacheData.timers) {
-        window._uiCacheData.timers.interval('anticaptcha.tick', tick, 800);
-    } else {
-        setInterval(tick, 800);
-    }
+    // Odpalamy lekką pętlę niezależną od silnika gry (bo captcha zawiesza silnik)
+    setInterval(checkCaptcha, 500);
 
     window._uiCacheData.anticaptcha = {
         solve,
-        tick,
-        getACConfig,
         getUnknownAttempts: () => unknownCaptchaAttempts
     };
 
 })();
 // --- END OF FILE anticaptcha.js ---
-
 // ====== autoauctions.js (bundled) ======
 // ═══════════════════════════════════════════════════════════════
 //  autoauctions.js – Logika Aukcji i Poczty
@@ -35463,17 +35409,18 @@ window._guiTabHTML_anticaptcha = function(gui) {
             <div class="card-body">
                 <div class="toggles-grid">
                     <div class="toggle-item">
-                        <label>Włącznik (Rozwiązywanie)</label>
+                        <label>Włącznik Antycaptchy</label>
                         <div id="set-anticaptchaEnabled" class="toggle-button-small off">OFF</div>
                     </div>
-                    <div class="toggle-item">
-                        <label>Auto-otwieranie okna</label>
-                        <div id="set-anticaptchaOpen" class="toggle-button-small off">OFF</div>
-                    </div>
                 </div>
+                <p class="opt-hint" style="text-align: center; margin-top: 10px;">
+                    Bot automatycznie otworzy okno (400-900ms) i rozwiąże zagadkę (700-2800ms).
+                </p>
             </div>
         </div>
 
+    </div>`;
+};
         <div class="settings-card">
             <div class="card-header">Losowy czas rozwiązywania (w milisekundach)</div>
             <div class="card-body">
@@ -35599,9 +35546,6 @@ window._guiTabHTML_anticaptcha = function(gui) {
 
                 // USTAWIENIA ANTY-CAPTCHA
                 anticaptchaEnabled: false,
-                anticaptchaOpen: false,
-                anticaptchaMinTime: 6000,
-                anticaptchaMaxTime: 15000,
 
                 // Pamięta ostatnio otwartą zakładkę (per-postać)
                 lastActiveTab: 'tab-exp',
@@ -35712,17 +35656,15 @@ window._guiTabHTML_anticaptcha = function(gui) {
             }
         }
 
-        saveSettings() {
-            // Zawsze zapisuj ustawienia AC do osobnego klucza – anticaptcha musi
-            // działać nawet gdy silnik nie jest załadowany i currentHeroId === null.
-            try {
-                localStorage.setItem('_ext_anticaptcha_prefs', JSON.stringify({
-                    anticaptchaEnabled: this.settings.anticaptchaEnabled,
-                    anticaptchaOpen:    this.settings.anticaptchaOpen,
-                    anticaptchaMinTime: this.settings.anticaptchaMinTime,
-                    anticaptchaMaxTime: this.settings.anticaptchaMaxTime,
-                }));
-            } catch(_) {}
+saveSettings() {
+    // Zawsze zapisuj ustawienia AC do osobnego klucza
+    try {
+        localStorage.setItem('_ext_anticaptcha_prefs', JSON.stringify({
+            anticaptchaEnabled: this.settings.anticaptchaEnabled
+        }));
+    } catch(_) {}
+    // ... reszta kodu
+}
 
             // BLOKADA ZAPISU - Jeśli gra nie załadowała jeszcze ID postaci, zabroń zapisu,
             // aby zapobiec nadpisywaniu się błędnych danych pod kluczem "_ext_ui_prefs_v2_null"
@@ -35925,7 +35867,7 @@ window._guiTabHTML_anticaptcha = function(gui) {
                 window._guiTabHTML_players    ? window._guiTabHTML_players(this)    : '<div id="tab-players"  class="tab-panel"><p class="placeholder-text">Brak modułu</p></div>',
                 window._guiTabHTML_options    ? window._guiTabHTML_options(this)    : '<div id="tab-options"  class="tab-panel"><p class="placeholder-text">Brak modułu</p></div>',
                 window._guiTabHTML_danger     ? window._guiTabHTML_danger(this)     : '<div id="tab-danger"   class="tab-panel"><p class="placeholder-text">Brak modułu</p></div>',
-                window._guiTabHTML_anticaptcha  ? window._guiTabHTML_anticaptcha(this)  : '<div id="tab-anticaptcha"  class="tab-panel"><p class="placeholder-text">Brak modułu</p></div>',
+              window._guiTabHTML_anticaptcha  ? window._guiTabHTML_anticaptcha(this)  : '<div id="tab-anticaptcha"  class="tab-panel"><p class="placeholder-text">Brak modułu</p></div>',
             ].join('');
 
             this.container = document.createElement('div');
